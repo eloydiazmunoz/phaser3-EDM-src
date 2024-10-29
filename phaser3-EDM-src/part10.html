@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Making your first Phaser 3 Game - Part 10</title>
+    <script src="//cdn.jsdelivr.net/npm/phaser@3.11.0/dist/phaser.js"></script>
+    <style type="text/css">
+        body {
+            margin: 0;
+        }
+    </style>
+</head>
+<body>
+
+<script type="text/javascript">
+
+var config = {
+    type: Phaser.AUTO,
+    width: 800,
+    height: 600,
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: { y: 300 },
+            debug: false
+        }
+    },
+    scene: {
+        preload: preload,
+        create: create,
+        update: update
+    }
+};
+
+var jugador; // Renamed 'player' to 'jugador'
+var estrelles; // Renamed 'stars' to 'estrelles'
+var bombes; // Renamed 'bombs' to 'bombes'
+var nivells; // Renamed 'platforms' to 'nivells'
+var cors; // Added for hearts
+var portal; // Added for portal
+var cursors;
+var puntuacio = 0; // Renamed 'score' to 'puntuacio'
+var jocAcabat = false; // Renamed 'gameOver' to 'jocAcabat'
+var textPuntuacio; // Renamed 'scoreText' to 'textPuntuacio'
+var textTemporitzador; // Renamed 'timerText' to 'textTemporitzador'
+var textFiJoc; // Added for game over message
+var textGuanyador; // Added for win message
+var compteEnrere = 60; // Countdown time in seconds
+
+var joc = new Phaser.Game(config);
+
+function preload ()
+{
+    this.load.image('sky', 'assets/sky.png');
+    this.load.image('ground', 'assets/platform.png');
+    this.load.image('star', 'assets/star.png');
+    this.load.image('bomb', 'assets/bomb.png');
+    this.load.image('heart', 'assets/heart.png'); // Load the heart image
+    this.load.image('portal', 'assets/portal.png'); // Load the portal image
+    this.load.spritesheet('dude', 'assets/dude.png', { frameWidth: 32, frameHeight: 48 });
+}
+
+function create ()
+{
+    // Background of the game
+    this.add.image(400, 300, 'sky');
+
+    // Group of platforms
+    nivells = this.physics.add.staticGroup(); // Changed from platforms to nivells
+
+    // Ground creation
+    nivells.create(400, 568, 'ground').setScale(2).refreshBody(); // Ground at the bottom
+
+    // Create platforms in different positions
+    nivells.create(500, 450, 'ground'); // Platform in the center
+    nivells.create(100, 350, 'ground'); // Platform on the left
+    nivells.create(700, 250, 'ground'); // Platform on the right
+
+    // Player setup
+    jugador = this.physics.add.sprite(100, 450, 'dude');
+    jugador.setBounce(0.2);
+    jugador.setCollideWorldBounds(true);
+
+    // Player animations
+    this.anims.create({
+        key: 'left',
+        frames: this.anims.generateFrameNumbers('dude', { start: 0, end: 3 }),
+        frameRate: 10,
+        repeat: -1
+    });
+
+    this.anims.create({
+        key: 'turn',
+        frames: [ { key: 'dude', frame: 4 } ],
+        frameRate: 20
+    });
+
+    this.anims.create({
+        key: 'right',
+        frames: this.anims.generateFrameNumbers('dude', { start: 5, end: 8 }),
+        frameRate: 10,
+        repeat: -1
+    });
+
+    // Input events
+    cursors = this.input.keyboard.createCursorKeys();
+
+    // Create stars
+    estrelles = this.physics.add.group({
+        key: 'star',
+        repeat: 20,
+        setXY: { x: 12, y: 0, stepX: 70 }
+    });
+
+    estrelles.children.iterate(function (child) {
+        child.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
+    });
+
+    bombes = this.physics.add.group(); // Initialize bombes group
+
+    // Create hearts
+    cors = this.physics.add.group({
+        key: 'heart',
+        repeat: 2, // Number of hearts to create
+        setXY: { x: 100, y: 0, stepX: 200 } // Spread the hearts across the screen
+    });
+
+    cors.children.iterate(function (child) {
+        child.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
+    });
+
+    // Score text
+    textPuntuacio = this.add.text(16, 16, 'Puntuació: ' + puntuacio, { fontSize: '32px', fill: '#000' });
+
+    // Countdown timer text
+    textTemporitzador = this.add.text(620, 16, 'Temps: ' + compteEnrere, { fontSize: '32px', fill: '#000' });
+
+    // Create portal
+    portal = this.physics.add.staticImage(700, 450, 'portal'); // Place the portal
+
+    // Collisions
+    this.physics.add.collider(jugador, nivells); // Changed from platforms to nivells
+    this.physics.add.collider(estrelles, nivells); // Changed from platforms to nivells
+    this.physics.add.collider(bombes, nivells); // Changed from platforms to nivells
+    this.physics.add.collider(cors, nivells); // Collide hearts with platforms
+
+    this.physics.add.overlap(jugador, estrelles, collectStar, null, this);
+    this.physics.add.overlap(jugador, cors, collectHeart, null, this); // Overlap for hearts
+    this.physics.add.collider(jugador, bombes, hitBomb, null, this);
+    this.physics.add.overlap(jugador, portal, accessPortal, null, this); // Overlap for portal
+
+    // Timer
+    this.time.addEvent({
+        delay: 1000, // 1 second
+        callback: updateTimer,
+        callbackScope: this,
+        loop: true
+    });
+}
+
+function update ()
+{
+    if (jocAcabat) return;
+
+    if (cursors.left.isDown) {
+        jugador.setVelocityX(-160);
+        jugador.anims.play('left', true);
+    }
+    else if (cursors.right.isDown) {
+        jugador.setVelocityX(160);
+        jugador.anims.play('right', true);
+    }
+    else {
+        jugador.setVelocityX(0);
+        jugador.anims.play('turn');
+    }
+
+    if (cursors.up.isDown && jugador.body.touching.down) {
+        jugador.setVelocityY(-330);
+    }
+}
+
+// Timer update function
+function updateTimer() {
+    compteEnrere--;
+    textTemporitzador.setText('Temps: ' + compteEnrere);
+
+    // Check if the timer has reached zero
+    if (compteEnrere <= 0) {
+        this.physics.pause(); // Pause the game
+        jocAcabat = true; // Set game over flag
+        showGameOverText.call(this); // Show game over message
+    }
+}
+
+function collectStar (jugador, estrella)
+{
+    estrella.disableBody(true, true);
+
+    // Increase and update score
+    puntuacio += 10;
+    textPuntuacio.setText('Puntuació: ' + puntuacio);
+
+    // Create a bomb every time a star is collected
+    var x = Phaser.Math.Between(0, 800);
+    var bomba = bombes.create(x, 16, 'bomb');
+    bomba.setBounce(1);
+    bomba.setCollideWorldBounds(true);
+    bomba.setVelocity(Phaser.Math.Between(-200, 200), 20);
+    bomba.allowGravity = false;
+
+    // Check if the score has reached the target
+    if (puntuacio >= 120) { // 120 points means 12 stars collected
+        this.physics.pause(); // Pause the game
+        jugador.setTint(0x00ff00); // Change the player's color
+        showWinText.call(this); // Show win message
+        return; // Exit the function
+    }
+
+    if (estrelles.countActive(true) === 0) {
+        estrelles.children.iterate(function (child) {
+            child.enableBody(true, child.x, 0, true, true);
+        });
+    }
+}
+
+function collectHeart (jugador, cor) {
+    cor.disableBody(true, true);
+
+    // Increase and update score by 20 for hearts
+    puntuacio += 20;
+    textPuntuacio.setText('Puntuació: ' + puntuacio);
+}
+
+function hitBomb (jugador, bomba)
+{
+    this.physics.pause();
+    jugador.setTint(0xff0000);
+    jugador.anims.play('turn');
+    jocAcabat = true;
+    
+    // Show game over message
+    showGameOverText.call(this);
+}
+
+// Function to handle portal access
+function accessPortal(jugador, portal) {
+    puntuacio += 50; // Afegeix 50 punts
+    textPuntuacio.setText('Puntuació: ' + puntuacio);
+    portal.disableBody(true, true); // Desactiva el portal després d'accedir
+    showPortalText.call(this); // Mostra el missatge de bonificació
+}
+
+// Show bonus message for portal access
+function showPortalText() {
+    this.add.text(400, 300, 'Has accedit al portal! +50 Punts!', { fontSize: '32px', fill: '#00ff00' }).setOrigin(0.5);
+}
+
+// Show game over message
+function showGameOverText() {
+    textFiJoc = this.add.text(400, 300, 'Fi del Joc!', { fontSize: '64px', fill: '#ff0000' }).setOrigin(0.5);
+}
+
+// Show win message
+function showWinText() {
+    textGuanyador = this.add.text(400, 300, 'Has Guanyat!', { fontSize: '64px', fill: '#00ff00' }).setOrigin(0.5);
+}
+
+</script>
+
+</body>
+</html>
